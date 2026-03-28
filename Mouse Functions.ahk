@@ -77,19 +77,44 @@ CapsLock:: {
 
 ; File Explorer Function, gets the current path of the folder being inspected
 ; within windows file explorer
+; see https://www.autohotkey.com/boards/viewtopic.php?t=109907
 GetActiveExplorerPath() {
     ; CabinetWClass is the classname for windows explorer
     explorerActivehwnd := WinActive("ahk_class CabinetWClass")
     if explorerActivehwnd {
-        ; opens the list of all window objects and iterates until
-        ; the current file explorer window is found
-        shell := ComObject("Shell.Application")
-        windows := shell.Windows
 
-        for window in windows {
-            if (window.hwnd == explorerActivehwnd) {
-                return window.Document.Folder.Self.Path
+        ; Identify the specific active tab handle
+        ; If tabs aren't present, activeTab will be 0 and the code falls back to window HWND
+        activeTab := 0
+        try activeTab := ControlGetHwnd("ShellTabWindowClass1", explorerActivehwnd) ; Win 11
+        catch
+            try activeTab := ControlGetHwnd("TabWindowClass1", explorerActivehwnd) ; IE
+
+        ; opens the list of all window objects and iterates until
+        ; the current file explorer window is found, then iterates for active tab
+        shell := ComObject("Shell.Application")
+
+        for window in shell.Windows {
+            ; Skip windows that don't belong to our current process/HWND
+            if (window.hwnd != explorerActivehwnd)
+                continue
+
+            if activeTab {
+                ; IID_IShellBrowser := "{000214E2-0000-0000-C000-000000000046}"
+                ; Query the window for the ShellBrowser interface
+                shellBrowser := ComObjQuery(window, "{000214E2-0000-0000-C000-000000000046}",
+                    "{000214E2-0000-0000-C000-000000000046}")
+
+                ; IShellBrowser::GetWindow is the 3rd method in the vtable
+                ; It retrieves the HWND of the specific tab/view
+                ComCall(3, shellBrowser, "uint*", &thisTab := 0)
+
+                if (thisTab != activeTab)
+                    continue
             }
+
+            ; return the found path
+            return window.Document.Folder.Self.Path
         }
     } else {
         ; for further reference, check out https://www.autohotkey.com/boards/viewtopic.php?t=85607
