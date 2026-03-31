@@ -123,8 +123,8 @@ GetActiveExplorerPath() {
 }
 
 ; gets the latest file in a directory
-GetLatestFile(Directory, precursorFN := False, precursorTM := False) {
-    LatestFN := precursorFN ? precursorFN : ""
+GetLatestFile(Directory, precursorTM := False) {
+    LatestFN := ""
     LatestTime := precursorTM ? precursorTM : 0
     foundNewMax := False
 
@@ -144,7 +144,7 @@ GetLatestFile(Directory, precursorFN := False, precursorTM := False) {
     ans := {}
     ; Only perform expensive string concatenation once at the end
     newfoundLFN := LatestFN ? Directory "\" LatestFN : ""
-    ans.FN := foundNewMax ? newfoundLFN : LatestFN
+    ans.FN := foundNewMax ? newfoundLFN : False
     ans.Time := LatestTime
     return ans
 }
@@ -385,9 +385,13 @@ horizontalScrollBind(direction) {
     }
 }
 
+; For Dasonian Navigation, ensure that we buffer input
+; Also increase the number of threads handling these inputs
+#MaxThreadsBuffer True
+#MaxThreadsPerHotkey 3
+
 ; Activates arrowkey navigation, assignment to ijkl keys (wasd)
 RShift & j:: {
-    Critical
     ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation
     Send("{blind}{RShift up}")
     if GetKeyState(";", "P") {
@@ -399,7 +403,6 @@ RShift & j:: {
 }
 
 RShift & l:: {
-    Critical
     ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation
     Send("{blind}{RShift up}")
     if GetKeyState(";", "P") {
@@ -411,7 +414,6 @@ RShift & l:: {
 }
 
 RShift & k:: {
-    Critical
     Send("{blind}{RShift up}")
     if GetKeyState(";", "P") {
         arrowNavigateVert(0, 1)
@@ -422,7 +424,6 @@ RShift & k:: {
 }
 
 RShift & i:: {
-    Critical
     Send("{blind}{RShift up}")
     if GetKeyState(";", "P") {
         arrowNavigateVert(1, 1)
@@ -446,7 +447,6 @@ refreshTraversal() {
 RShift & Space:: {
     global
     ; contains a small buffer to help with correcting erroneous space input when hyper-traversing, using traversal timer
-    Critical
     local isKeyj := GetKeyState("j", "P")
     local isKeyi := GetKeyState("i", "P")
     if (isKeyj Or GetKeyState("l", "P")) {
@@ -474,6 +474,10 @@ RShift & Space:: {
     }
 }
 
+; Conclude buffering
+#MaxThreadsBuffer False
+#MaxThreadsPerHotkey 1
+
 ; Allows CTRL to fire during arrowkey navigation
 ; tilda (~) prevents the original input from being consumed
 ; here, LCtrl is being treated like a normal key only in terms of tilda's effect
@@ -499,8 +503,13 @@ RShift & ~LCtrl:: {
     }
 }
 
+; Buffer this button to prevent unintended race conditions not being fixed
+; Increase responsiveness with 2 threads
+#MaxThreadsBuffer True
+#MaxThreadsPerHotkey 2
 ; PADDLE FUNCTIONS
 F24:: {
+    global
     fixRaceCondition("F24")
 }
 
@@ -523,11 +532,16 @@ F24 Up:: {
     dualClickToggle := 0
     hasCopied := 0
 }
+#MaxThreadsPerHotkey 1
+#MaxThreadsBuffer False
 
 F16:: {
     WinMinimize("A")
 }
 
+; Buffer this section, improve performance whilst allowing double presses
+#MaxThreadsBuffer True
+#MaxThreadsPerHotkey 2
 ; left tab
 F17:: {
     Send("^+{Tab}")
@@ -547,6 +561,8 @@ F18:: {
         Sleep TAB_SWAP_DELAY
     }
 }
+#MaxThreadsPerHotkey 1
+#MaxThreadsBuffer False
 
 ; LWheel
 F23:: {
@@ -742,16 +758,21 @@ F24 & F22:: {
 
         ; next rounds compared against previous winner
         for loc in possibleLoc {
-            ans := GetLatestFile(loc, latestFile, latestTime)
-            latestFile := ans.FN
+            ans := GetLatestFile(loc, latestTime)
+            if (ans.FN) {
+                latestFile := ans.FN
+            }
             latestTime := ans.Time
         }
 
         ; Finally, move the files
-        FileMove latestFile, targetDest
-
-        ; Inform user
-        DisplayNotification2("AHK - File Moved", "1fcfa9", 2400)
+        if latestFile {
+            FileMove latestFile, targetDest
+            ; Inform user
+            DisplayNotification2("AHK - File Moved", "1fcfa9", 2200)
+        } else {
+            DisplayNotification2("AHK - No Files", "563509", 2400)
+        }
         Critical "Off"
     } else {
         if GetKeyState("LShift") {
