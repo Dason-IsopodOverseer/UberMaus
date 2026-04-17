@@ -7,7 +7,8 @@ A_MaxHotkeysPerInterval := 1024	; prevent error message from high loads, 1024 ho
 #MaxThreadsPerHotkey 1 ; allow only one thread per Hotkey; a hotkey cannot interrupt itself
 #MaxThreads 16 ; allow up to 16 threads to simultaneously run
 KeyHistory 0 ; disable key logging
-SetKeyDelay 0	; no delay between keypresses
+SetKeyDelay -1, -1	; no delay between keypresses, no delay between helds, default when sendmode input fallsback to event
+ProcessSetPriority("High") ; allows for spamming without remorse, disabling this increases liklihood of keyhook interruption, resulting in race conditions
 
 ; CONFIGURATION PRIMATIVES, time in miliseconds
 ; 	Vertical Jump controls the amount of lines to jump on ;
@@ -19,14 +20,16 @@ VERT_DIST := 4  ; currently set to 4
 ;   Traversal Timer is the amount of time to await traversal concluson during hyperjump
 TRAVERSAL_TIMER := 500
 ;	Tab Swap delay is the amount of delay between rapid tab switching
-TAB_SWAP_DELAY := 64
+TAB_SWAP_DELAY := 80
+;   This is how long the tab switch is held, recommended to set it to 0.2
+TAB_PRESS_HELD := 0.2
+
 ; 	FILE locations
 UserProfile := EnvGet("USERPROFILE")
 VSCODE_LAUNCH := UserProfile "\AppData\Local\Programs\Microsoft VS Code\bin\code"
 SCREENSHOTS := UserProfile "\Pictures\Screenshots"
 DOWNLOADS := UserProfile "\Downloads"
 OBS := UserProfile "\Videos\OBS Output"
-;
 BROWSER := "floorp.exe"
 
 ; Terminology for SYNCHRONIZATION PRIMITIVES
@@ -153,8 +156,16 @@ GetLatestFile(Directory, precursorTM := False) {
 SendRepeatKeys(sentStuff, freq, iter) {
     loop iter {
         Send(sentStuff)
-        Sleep freq
+        BlockingSleep freq
     }
+}
+
+; safe sleep, prevents key input for duration
+BlockingSleep(duration) {
+    Critical
+    BlockInput 1
+    Sleep duration
+    BlockInput 0
 }
 
 ; UI function, gets the current coordinates of the active window
@@ -317,53 +328,44 @@ RShift & `;:: {
 ; Arrowkey Navigation Replacement
 ; Replacement for right-handed arrow key navigation, can be remapped to any set of (wasd) keys
 arrowNavigate(direction, p) {
+    ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation
+    Send("{blind}{RShift up}")
     if (direction) {
-        if GetKeyState("LShift", "P") {
-            Send(p ? "{Blind}+{Home}" : "{Blind}+{Left}")
-        } else {
-            Send(p ? "{Blind}{Home}" : "{Blind}{Left}")
-        }
+        Send(p ? "{Blind}{Home}" : "{Blind}{Left}")
     } else {
-        if GetKeyState("LShift", "P") {
-            Send(p ? "{Blind}+{End}" : "{Blind}+{Right}")
-        } else {
-            Send(p ? "{Blind}{End}" : "{Blind}{Right}")
-        }
+        Send(p ? "{Blind}{End}" : "{Blind}{Right}")
     }
 }
 ; Replacement for vertical navigation
 arrowNavigateVert(direction, p) {
-    isShiftPressed := GetKeyState("LShift", "P")
-
+    ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation
+    Send("{blind}{RShift up}")
     if (direction) {
-        if (isShiftPressed) {
-            p ? SendRepeatKeys("{Blind}{Up}", 30, VERT_JUMP) : Send("{Blind}+{Up}")
-        } else {
-            p ? SendRepeatKeys("{Blind}{Up}", 30, VERT_JUMP) : Send("{Blind}{Up}")
-        }
+        p ? SendRepeatKeys("{Blind}{Up}", 30, VERT_JUMP) : Send("{Blind}{Up}")
     } else {
-        if (isShiftPressed) {
-            p ? SendRepeatKeys("{Blind}{Down}", 30, VERT_JUMP) : Send("{Blind}+{Down}")
-        } else {
-            p ? SendRepeatKeys("{Blind}{Down}", 30, VERT_JUMP) : Send("{Blind}{Down}")
-        }
+        p ? SendRepeatKeys("{Blind}{Down}", 30, VERT_JUMP) : Send("{Blind}{Down}")
     }
 }
 ; horizontal navigation without blind sending, ideal for repeated sends
-; disables ctrl modifier
-arrowNavigateUnblind(direction, p) {
+; not supported for ctrl modifier
+; NOTABLE for using SendEvent, with buffered pauses
+arrowNavigateUnblind(direction) {
+    local lShiftPress := (GetKeyState("LShift", "P"))
+    SetKeyDelay(0.92, 0.26)
     if (direction) {
-        if GetKeyState("LShift", "P") {
-            Send(p ? "{Home}" : "+{Left}")
-        } else {
-            Send(p ? "{Home}" : "{Left}")
-        }
+        SendEvent(lShiftPress ? "+{Left " WORD_DIST "}" : "{Left " WORD_DIST "}")
     } else {
-        if GetKeyState("LShift", "P") {
-            Send(p ? "+{End}" : "+{Right}")
-        } else {
-            Send(p ? "{End}" : "{Right}")
-        }
+        SendEvent(lShiftPress ? "+{Right " WORD_DIST "}" : "{Right " WORD_DIST "}")
+    }
+}
+; as above, so below, for vertical navigation
+arrowNavigateUnblindVert(direction) {
+    local lShiftPress := (GetKeyState("LShift", "P"))
+    SetKeyDelay(1, 0.25)
+    if (direction) {
+        SendEvent(lShiftPress ? "+{Up " VERT_DIST "}" : "{Up " VERT_DIST "}")
+    } else {
+        SendEvent(lShiftPress ? "+{Down " VERT_DIST "}" : "{Down " VERT_DIST "}")
     }
 }
 
@@ -391,47 +393,11 @@ horizontalScrollBind(direction) {
 #MaxThreadsPerHotkey 3
 
 ; Activates arrowkey navigation, assignment to ijkl keys (wasd)
-RShift & j:: {
-    ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation
-    Send("{blind}{RShift up}")
-    if GetKeyState(";", "P") {
-        arrowNavigate(1, 1)
-    } else {
-        arrowNavigate(1, 0)
-    }
-    Send("{blind}{RShift down}")
-}
+RShift & j:: arrowNavigate(1, GetKeyState(";", "P"))
+RShift & l:: arrowNavigate(0, GetKeyState(";", "P"))
+RShift & i:: arrowNavigateVert(1, GetKeyState(";", "P"))
+RShift & k:: arrowNavigateVert(0, GetKeyState(";", "P"))
 
-RShift & l:: {
-    ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation
-    Send("{blind}{RShift up}")
-    if GetKeyState(";", "P") {
-        arrowNavigate(0, 1)
-    } else {
-        arrowNavigate(0, 0)
-    }
-    Send("{blind}{RShift down}")
-}
-
-RShift & k:: {
-    Send("{blind}{RShift up}")
-    if GetKeyState(";", "P") {
-        arrowNavigateVert(0, 1)
-    } else {
-        arrowNavigateVert(0, 0)
-    }
-    Send("{blind}{RShift down}")
-}
-
-RShift & i:: {
-    Send("{blind}{RShift up}")
-    if GetKeyState(";", "P") {
-        arrowNavigateVert(1, 1)
-    } else {
-        arrowNavigateVert(1, 0)
-    }
-    Send("{blind}{RShift down}")
-}
 ; Not Assigned
 ; RShift & u::{}
 ; RShift & o::{}
@@ -452,21 +418,11 @@ RShift & Space:: {
     if (isKeyj Or GetKeyState("l", "P")) {
         ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation (logically up)
         refreshTraversal()
-        send("{blind}{RShift up}")
-        loop WORD_DIST {
-            arrowNavigateUnblind(isKeyj, 0)
-            Sleep 5 ; just a little sleep to make it animate
-        }
-        send("{blind}{RShift down}")
+        arrowNavigateUnblind(isKeyj)
     } else if (isKeyi Or GetKeyState("k", "P")) {
         ; Special Technique - Send blind modifier up to logically indicate that RShift is being released during operation (logically up)
         refreshTraversal()
-        send("{blind}{RShift up}")
-        loop VERT_DIST {
-            arrowNavigateVert(isKeyi, 0)
-            Sleep 5
-        }
-        send("{blind}{RShift down}")
+        arrowNavigateUnblindVert(isKeyi)
     } else if !(isTraversing) {
         send("{Space}")
     } else {
@@ -493,13 +449,13 @@ RShift & ~LCtrl:: {
 ;;; START OF MOUSE KEYBINDS ;;;
 ; FOR DEBUGGING
 #F12:: {
-    Sleep 400
+    BlockingSleep 400
     loop {
         LogSemaphoreInfo()
         if GetKeyState("F12", "P") {
             break
         }
-        Sleep 400
+        BlockingSleep 400
     }
 }
 
@@ -539,51 +495,44 @@ F16:: {
     WinMinimize("A")
 }
 
-; Buffer this section, improve performance whilst allowing double presses
-#MaxThreadsBuffer True
-#MaxThreadsPerHotkey 2
+; Send event is optimal for repeated inputs
+tabSwap(direction) {
+    SetKeyDelay(TAB_SWAP_DELAY, TAB_PRESS_HELD)
+    SendEvent(direction ? "^+{Tab " 2 " }" : "^{Tab " 2 " }")
+}
+
 ; left tab
 F17:: {
     Send("^+{Tab}")
     KeyWait("F17", "T0.3125")
     while GetKeyState("F17", "P") {
-        SendInput("^+{Tab}")
-        Sleep TAB_SWAP_DELAY
+        tabSwap(1)
     }
 }
-
 ; right tab
 F18:: {
     SendInput("^{Tab}")
     KeyWait("F18", "T0.3125")
     while GetKeyState("F18", "P") {
-        Send("^{Tab}")
-        Sleep TAB_SWAP_DELAY
+        tabSwap(0)
     }
 }
-#MaxThreadsPerHotkey 1
-#MaxThreadsBuffer False
-
 ; LWheel
 F23:: {
     Send("^t")
 }
-
 ; RWheel
 F22:: {
     Send("^w")
 }
-
 ; Hypershifted LWheel
 F21:: {
     Send("^r")
 }
-
 ; Hypershifted RWheel
 F20:: {
     Send("^+t")
 }
-
 ; Hypershifted MClick
 F15:: {
     ; VScode shortcut
@@ -605,7 +554,6 @@ F15:: {
 F19 & PgUp:: {
     zoomBind(0)
 }
-
 F19 & PgDn:: {
     zoomBind(1)
 }
@@ -818,15 +766,14 @@ F24 & F23:: {
 ;     Critical
 ;     gear := 0
 ; }
-
 ; F24 & XButton1 Up:: {
 ;     global
 ;     Critical
 ;     gear := 0
 ;     backToggle := 0
 ; }
-
 ; delete line, move carat up
+
 XButton1 & WheelUp:: {
     global
     backToggle := 1
@@ -843,13 +790,13 @@ XButton1 & WheelUp:: {
                 ; swap this line and the line above
                 Send("{Home}")
                 Send("+{End}")
-                Sleep 32
+                BlockingSleep 32
                 Send("^x")
-                Sleep 32
+                BlockingSleep 32
                 Send("{Up}")
-                Sleep 32
+                BlockingSleep 32
                 Send("^v")
-                Sleep 32
+                BlockingSleep 32
                 Send("{Up}")
                 Send("{End}")
             }
@@ -871,17 +818,17 @@ XButton1 & WheelDown:: {
                 Send("!{Down}")
             } else {
                 Send("{Shift Up}")
-                Sleep 64
+                BlockingSleep 64
                 Send("{Home}")
-                Sleep 64
+                BlockingSleep 64
                 Send("+{End}")
-                Sleep 64
+                BlockingSleep 64
                 Send("^c")
-                Sleep 128
+                BlockingSleep 128
                 Send("{End}")
-                Sleep 64
+                BlockingSleep 64
                 Send("+{Enter}")
-                Sleep 64
+                BlockingSleep 64
                 Send("^v")
             }
         } else {
@@ -891,14 +838,14 @@ XButton1 & WheelDown:: {
                 ; swap this line and the line below
                 Send("{Home}")
                 Send("+{End}")
-                Sleep 32
+                BlockingSleep 32
                 Send("^x")
-                Sleep 32
+                BlockingSleep 32
                 Send("{End}")
                 Send("+{Enter}")
-                Sleep 32
+                BlockingSleep 32
                 Send("^v")
-                Sleep 32
+                BlockingSleep 32
                 Send("{Backspace}")
             }
         }
@@ -966,7 +913,7 @@ XButton1 & F22:: {
         KeyWait("F22", "T0.3125")
         while GetKeyState("F22", "P") {
             Send("^z")
-            Sleep 128
+            BlockingSleep 128
         }
     } else {
         if WinActive("ahk_exe " BROWSER) {
@@ -983,7 +930,7 @@ XButton1 & F23:: {
         KeyWait("F23", "T0.3125")
         while GetKeyState("F23", "P") {
             Send("^y")
-            Sleep 128
+            BlockingSleep 128
         }
     } else {
         if WinActive("ahk_exe " BROWSER) {
@@ -1034,19 +981,17 @@ XButton2 & F17:: {
     KeyWait("LButton", "T0.3125")
     while GetKeyState("LButton", "P") {
         Send("^+{PgUp}")
-        Sleep 48
+        BlockingSleep 48
     }
 }
-
 XButton2 & F18:: {
     Send("^+{PgDn}")
     KeyWait("RButton", "T0.3125")
     while GetKeyState("RButton", "P") {
         Send("^+{PgDn}")
-        Sleep 48
+        BlockingSleep 48
     }
 }
-
 ; same functionality as doing XButton2 Up, because this is a prefix key
 XButton2:: {
     global
@@ -1057,18 +1002,15 @@ XButton2:: {
         gear := 0
     }
 }
-
 XButton2 & F19:: {
     global
     Critical
     gear := 2
 }
-
 F19 & XButton2:: {
     global
     ; gear := 3
 }
-
 XButton2 & F19 Up:: {
     global
     Critical
