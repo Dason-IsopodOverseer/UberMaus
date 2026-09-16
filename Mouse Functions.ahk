@@ -20,7 +20,7 @@ VERT_DIST := 4  ; currently set to 4
 ;   Traversal Timer is the amount of time to await traversal concluson during hyperjump
 TRAVERSAL_TIMER := 500
 ;	Tab Swap delay is the amount of delay between rapid tab switching
-TAB_SWAP_DELAY := 80
+TAB_SWAP_DELAY := 82
 ;   This is how long the tab switch is held, recommended to set it to 0.2
 TAB_PRESS_HELD := 0.2
 
@@ -36,10 +36,16 @@ BROWSER := "floorp.exe"
 ; Binary Semaphores indicating conditions are called INDICATORS, of the form "has[verb]"
 ;;;;	Consider - indicators persist after triggering, released through another action
 ;;;;	Imagine - a button which, once pushed, is locked into place and requires another mechanism to reset it
+
 ; Binary Semaphores that are indicators with shared release and reactivation methods are called TOGGLES
 ;;;;	Consider - toggles are triggered and released through the same action, like a switch
 ;;;;	Imagine - a lever-like switch; or a non-locking button that turns things on and off
 ;;;;	Consider - toggles are a subset of indicators
+
+; Binary Semaphores that are indicators with a timed reset are AUTOTOGGLES
+;;;; Consider - this is a toggle that releases itself
+;;;; Imagine - a button that will reset (pop up) after a press, like a piano key
+
 ; Counting Semaphores are called GEARS, like the gear shift on a wheeled vehicle
 
 ; DUAL CLICK
@@ -50,7 +56,9 @@ global gear := 0 ; mutually exclusive semaphore to control resource sharing of F
 global backToggle := 0 ; toggled when back button is pressed in conjunction with any other input (excepting RButton), indicates back is overridden
 global capsToggle := 0 ; toggled when capslock is activated, disabled by default; not mutually exclusive
 global dualClickToggle := 0 ; toggled with an activation of dual click
-global focusWindow := 0 ; helps keep track of switching stacked window, a special toggle to be reworked
+global focusWindow := 0 ; helps keep track of switching stacked window, a special toggle to be reworked;;;; NEEDS REWORK
+
+global windowArrangeToggle := 0 ; toggled when freshly rearranging windows between monitors
 
 global hasScrolled := 0 ; indicator, triggered via scroll with F24 (Paddle), Back, or BackPaddle; reset upon release of those
 global hasSelected := 1 ; indicator, trigged via scrolling with shift activated (RButton held); reset upon new scroll without shift
@@ -60,14 +68,23 @@ global hasDropSelected := 0 ; indicator, triggered via dropping F24 (Paddle) dur
 
 SetScrollLockState "AlwaysOff" ; disable capslock by default, later to be toggled
 
+; disables Capslock
+CapsLock:: return
+
 ; change focus of stacked windows via PowerToys Fancyzones
 LAlt & CapsLock:: {
     global
     Send((focusWindow := !focusWindow) ? "#{PgUp}" : "#{PgDn}")
 }
 
-; toggle capslock disabled state
-CapsLock:: {
+; enable powertoys run
+#f:: Send "!^#f"
+
+; disable Windows 10 and 11 shortcut to swap languages
+; #space:: DisplayNotification2("Language Input Swap Disabled", "e73706", 1000, 0.15, 0.05)
+
+; toggle capslock disabled stater
+<^CapsLock:: {
     global
     if (capsToggle) {
         SetCapsLockState "AlwaysOff"
@@ -550,16 +567,29 @@ F15:: {
 }
 
 ;;; HYPERPADDLE
+;; using HotIf conditional to prevent treatment of F19 as modifier key
+#HotIf GetKeyState("F19", "P")
+
 ; Zooming in and out
-F19 & PgUp:: {
-    zoomBind(0)
+PgUp:: {
+    global windowArrangeToggle
+    if (windowArrangeToggle) {
+        Send("#{Up}")
+    } else {
+        zoomBind(0)
+    }
 }
-F19 & PgDn:: {
-    zoomBind(1)
+PgDn:: {
+    global windowArrangeToggle
+    if (windowArrangeToggle) {
+        Send("#{Down}")
+    } else {
+        zoomBind(1)
+    }
 }
 
 ; Snipping tool, with popup, useful for editing or AI text extraction
-F19 & F18:: {
+F18 Up:: {
     try {
         Run("SnippingTool", , "Hide")
         WinWait("Snipping Tool", "", 1)
@@ -570,21 +600,40 @@ F19 & F18:: {
 }
 
 ; Snipping tool, without popup, "quick snip"
-F19 & F17:: {
+F17 Up:: {
     Send("#+s")
 }
 
+; Use a toggle flag (not concurrent) to denote recency of windows arrangement
+WAT(setBool) {
+    global windowArrangeToggle
+    windowArrangeToggle := setBool
+}
+
 ; Arrange window on Monitor Left/Right
-F19 & F20:: {
+F20:: {
     Send("+#{Left}")
+    WAT(1)
 }
 
 ; Arrange window on Monitor Left/Right
-F19 & F21:: {
+F21:: {
     Send("+#{Right}")
+    WAT(1)
 }
 
+#HotIf
+
+F19 Up:: {
+    global windowArrangeToggle
+    if (windowArrangeToggle)
+        DisplayNotification("Window Placed (UwU)", "400a20")
+    WAT(0)
+}
+
+;; LONE PADDLE ;;
 ;; Text selection with mouse wheel ;;
+
 F24 & WheelUp:: {
     global
     Critical
@@ -1002,15 +1051,18 @@ XButton2:: {
         gear := 0
     }
 }
+
 XButton2 & F19:: {
     global
     Critical
     gear := 2
 }
-F19 & XButton2:: {
-    global
-    ; gear := 3
-}
+
+; F19 & XButton2:: {
+;     global
+;     ; gear := 3
+; }
+
 XButton2 & F19 Up:: {
     global
     Critical
