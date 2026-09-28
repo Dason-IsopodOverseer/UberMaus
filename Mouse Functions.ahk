@@ -185,7 +185,7 @@ BlockingSleep(duration) {
     BlockInput 0
 }
 
-; UI function, gets the current coordinates of the active window
+; UI function, gets the current coordinates of the active window, WHITE ON BLACK
 ; displays a short message via new GUI window that doesn't interfere with current window
 ; recalling this will replace the current window's text, if it has not been destroyed
 DisplayNotification(notifyText, backgroundColor := "434343", timeAlive := 720, posX := 20, posY := 20) {
@@ -219,7 +219,7 @@ DisplayNotification(notifyText, backgroundColor := "434343", timeAlive := 720, p
     SetTimer(() => MyGui.Destroy(), -timeAlive)
 }
 
-; UI function, a secondary notification that appears centered by default
+; UI function, a secondary notification that appears centered by default, WHITE ON BLACK
 ; If not centered, notifications are right-justified, by percentage of width or height
 DisplayNotification2(notifyText, backgroundColor := "434343", timeAlive := 900, posX := "Center", posY := "Center") {
     ; No active window? Then just return. This shouldn't happen, so give warning
@@ -250,6 +250,78 @@ DisplayNotification2(notifyText, backgroundColor := "434343", timeAlive := 900, 
     MyGui.Show("NoActivate x" posX " y" posY)
     ; Destroy after specified time
     SetTimer(() => MyGui.Destroy(), -timeAlive)
+}
+
+; UI function, gets the current coordinates of the active window, BLACK ON WHITE
+; maintains the notification forever until suc
+; unlike prior two examples, returns a pointer to this object, for dismissal
+PersistentNotification(notifyText, backgroundColor := "White", textColor := "Black", posX := 20, posY := 20) {
+    ; No active window? Then just return. This shouldn't happen, so give warning
+    if !(WinExist("A")) {
+        notifyText := "NO ACTIVE WINDOW FOUND"
+    }
+
+    WinGetPos &X, &Y, &W, &H, "A"  ; using "A" to get the active window's pos.
+
+    ; give a small buffer to the positioning to account for inaccuracies in WinGetPos
+    ; buffer is typically specified as pixels, decimal values are treated as percentile translations
+    if (posX + posY > 2) {
+        X += posX
+        Y += posY
+    } else {
+        X += W * posX
+        Y += H * posY
+    }
+
+    ; +Owner avoids a taskbar button
+    ; +AlwaysOnTop does as expected
+    ; -Border removes curved borders
+    MyGui := Gui("+AlwaysOnTop -Border +Owner", "AHKpersistentnotificatoin")
+    MyGui.BackColor := backgroundColor ; set background color
+
+    ; Set font (12pt, bold Segoe UI)
+    MyGui.SetFont("s12 bold", "Segoe UI")
+    MyGui.Add("Text", "c" . textColor, notifyText) ; add text
+    ; NoActivate avoids deactivating the currently active window.
+    MyGui.Show("NoActivate x" X " y" Y)
+
+    ; Define the dismissal method (acts like a Promise Resolution)
+    MyGui.Dismiss := NotifyDismiss
+
+    NotifyDismiss(self) {
+        if (self.HasProp("OnDismiss") && self.OnDismiss) {
+            self.OnDismiss.Call() ; Trigger resolution callback hook
+        }
+        self.Destroy()
+    }
+
+    return MyGui
+}
+
+; helper function to toggle persistent notifications, up to thee pointers
+; pass in gears to associate persistent global modifier state toggles
+TogglePersistentNotification(pointerSelect, nt, bc := "White", tc := "Black", x := 20, y := 20, gearOff := 0, gearOn :=
+    0) {
+    ; start an array of static pointers
+    static nP := ["", "", ""]
+    global gear
+
+    ; arrays are 1-indexed!
+    i := pointerSelect + 1
+
+    if (nP[i]) {
+        nP[i].Dismiss()
+        nP[i] := ""
+        gear := gearOff
+        return
+    }
+
+    nP[i] := PersistentNotification(nt, bc, tc, x, y)
+
+    ; register the dismissal hook with lambda function
+    nP[i].OnDismiss := (*) => (nP[i] := "")
+
+    gear := gearOn
 }
 
 LogSemaphoreInfo() {
@@ -589,7 +661,7 @@ PgDn:: {
 }
 
 ; Snipping tool, with popup, useful for editing or AI text extraction
-F18 Up:: {
+F18:: {
     try {
         Run("SnippingTool", , "Hide")
         WinWait("Snipping Tool", "", 1)
@@ -600,35 +672,42 @@ F18 Up:: {
 }
 
 ; Snipping tool, without popup, "quick snip"
-F17 Up:: {
+F17:: {
     Send("#+s")
 }
 
 ; Use a toggle flag (not concurrent) to denote recency of windows arrangement
 WAT(setBool) {
+    Critical
     global windowArrangeToggle
+    TogglePersistentNotification(2, "ACTIVATED: | Window Arranger |", "766b05", "efddc7")
     windowArrangeToggle := setBool
 }
 
 ; Arrange window on Monitor Left/Right
 F20:: {
     Send("+#{Left}")
-    WAT(1)
+    if not (windowArrangeToggle)
+        WAT(1)
 }
 
 ; Arrange window on Monitor Left/Right
 F21:: {
     Send("+#{Right}")
-    WAT(1)
+    if not (windowArrangeToggle)
+        WAT(1)
 }
 
-#HotIf
+#HotIf ; end F19 pressed
 
 F19 Up:: {
     global windowArrangeToggle
-    if (windowArrangeToggle)
-        DisplayNotification("Window Placed (UwU)", "400a20")
-    WAT(0)
+    if (windowArrangeToggle) {
+        DisplayNotification("WINDOW SECURED", "03a02f")
+        WAT(0)
+    }
+    else
+        WAT(1)
 }
 
 ;; LONE PADDLE ;;
@@ -1058,13 +1137,18 @@ XButton2 & F19:: {
     gear := 2
 }
 
-; F19 & XButton2:: {
-;     global
-;     ; gear := 3
-; }
-
-XButton2 & F19 Up:: {
+F19 & XButton2:: {
     global
     Critical
-    gear := 0
+    gear := 3
+}
+
+XButton2 & F19 Up:: {
+    Critical
+    TogglePersistentNotification(0, "| GEAR 2 Persistent Modality Undefined |", "b6d9f1", "0a3144", 24, 14, 0, 4)
+}
+
+F19 & XButton2 Up:: {
+    Critical
+    TogglePersistentNotification(1, "ACTIVATED: | TriCanth Typing |", "f1cbb6", "593404", 24, 84, 0, 5)
 }
