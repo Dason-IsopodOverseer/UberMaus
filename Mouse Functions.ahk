@@ -300,8 +300,9 @@ PersistentNotification(notifyText, backgroundColor := "White", textColor := "Bla
 
 ; helper function to toggle persistent notifications, up to thee pointers
 ; pass in gears to associate persistent global modifier state toggles
+; can pass in up to one lambda function to curry a state-specific result, by default a
 TogglePersistentNotification(pointerSelect, nt, bc := "White", tc := "Black", x := 20, y := 20, gearOff := 0, gearOn :=
-    0) {
+    0, lambda := (*) => "") {
     ; start an array of static pointers
     static nP := ["", "", ""]
     global gear
@@ -322,6 +323,11 @@ TogglePersistentNotification(pointerSelect, nt, bc := "White", tc := "Black", x 
     nP[i].OnDismiss := (*) => (nP[i] := "")
 
     gear := gearOn
+
+    ; wrapper function runner
+    if (lambda is Func) {
+        lambda()
+    }
 }
 
 LogSemaphoreInfo() {
@@ -366,11 +372,6 @@ LogSemaphoreInfo() {
     SetTimer(() => MyGui.Destroy(), -800)
 }
 
-; function to pre-empt a race condition check
-safeGetKeyStateLogical(modifierKey) {
-    return GetKeyState(modifierKey)
-}
-
 ; sometimes, race conditions persist despite marking critical sections
 ; this is speculated to occur due to system interrupts, keyboard issues with registering multiple keypresses, or the AHK runner interpretting this script rather than compiling to an exe
 ; another possible reason is keyhook delay, this is not something that can be  fixed without amending hardware interface code
@@ -393,6 +394,16 @@ fixRaceCondition(modifierKey) {
         }
     }
 }
+
+; SuspendAndBequeath will suspend all hotkeys and bequeath main functionality to an auxillary script, based on a provided semaphore
+SuspendAndBequeath() {
+    Suspend 1
+
+    RunWait("TriCanth.ahk", , "Min")
+
+    Suspend 0
+}
+
 ; declare ; as a modifier
 `;::;
 
@@ -536,7 +547,6 @@ RShift & ~LCtrl:: {
 }
 
 ;;; START OF MOUSE KEYBINDS ;;;
-; FOR DEBUGGING
 #F12:: {
     BlockingSleep 400
     loop {
@@ -1150,5 +1160,7 @@ XButton2 & F19 Up:: {
 
 F19 & XButton2 Up:: {
     Critical
-    TogglePersistentNotification(1, "ACTIVATED: | TriCanth Typing |", "f1cbb6", "593404", 24, 84, 0, 5)
+    ; SandB := () => (gear == 5) ? SuspendAndBequeath() : (*) => ""
+    ; we begin passover to another AHK script implementing TriCanth, using suspend and bequeath
+    SuspendAndBequeath()
 }
